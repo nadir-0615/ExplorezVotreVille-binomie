@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'api_service.dart'; // Contient VilleData et fetchVilleData
 
 class PagePrincipale extends StatefulWidget {
@@ -22,16 +24,75 @@ class _PagePrincipaleState extends State<PagePrincipale> {
   List<String> villesFavorites = [];
   List<Map<String, String>> lieux = [];
 
+  String? villePrincipale; // 🆕 nouvelle variable : ville favorite principale
+
   @override
   void initState() {
     super.initState();
-    _loadFavorites();
-    _fetchVille(villeSelectionnee);
-    _loadLieux(villeSelectionnee);
+    _initialiserVille();
   }
 
-  /// ------------------ Gestion API ville ------------------
-  void _fetchVille(String ville) async {
+  /// ------------------ Initialisation ------------------
+  Future<void> _initialiserVille() async {
+    await _loadFavorites();
+
+    // 🆕 Vérifie si une ville principale est enregistrée
+    final prefs = await SharedPreferences.getInstance();
+    villePrincipale = prefs.getString('ville_principale');
+
+    if (villePrincipale != null) {
+      villeSelectionnee = villePrincipale!;
+      await _fetchVille(villeSelectionnee);
+      await _loadLieux(villeSelectionnee);
+      return;
+    }
+
+    // Sinon on tente la géolocalisation
+    try {
+      String? currentCity = await _getCurrentCity();
+      if (currentCity != null) {
+        villeSelectionnee = currentCity;
+      }
+    } catch (e) {
+      debugPrint("Erreur géolocalisation: $e");
+    }
+
+    await _fetchVille(villeSelectionnee);
+    await _loadLieux(villeSelectionnee);
+  }
+
+  /// ------------------ Géolocalisation ------------------
+  Future<String?> _getCurrentCity() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return null;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return null;
+    }
+
+    if (permission == LocationPermission.deniedForever) return null;
+
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    List<Placemark> placemarks = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
+    );
+    if (placemarks.isNotEmpty) {
+      return placemarks.first.locality ?? "Paris";
+    }
+    return null;
+  }
+
+  /// ------------------ Gestion API ------------------
+  Future<void> _fetchVille(String ville) async {
     setState(() {
       isLoading = true;
       error = null;
@@ -179,13 +240,23 @@ class _PagePrincipaleState extends State<PagePrincipale> {
     });
   }
 
-  /// ------------------ Recherche villes ------------------
-  /// Simulé : si plusieurs villes contiennent la recherche, on choisit via dialog
+  /// 🆕 Définir une ville favorite comme "principale"
+  Future<void> _setVillePrincipale(String ville) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ville_principale', ville);
+    setState(() {
+      villePrincipale = ville;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$ville est maintenant la ville principale 🌆')),
+    );
+  }
+
+  /// ------------------ Recherche ------------------
   void _onSearch() async {
     final query = _villeController.text.trim();
     if (query.isEmpty) return;
 
-    // Simuler plusieurs résultats
     List<String> villesTrouvees = [];
     if (query.toLowerCase() == 'par') {
       villesTrouvees = ['Paris, France', 'Parma, Italie'];
@@ -234,7 +305,7 @@ class _PagePrincipaleState extends State<PagePrincipale> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /// Rechercher une ville
+            /// Recherche
             Row(
               children: [
                 Expanded(
@@ -281,10 +352,16 @@ class _PagePrincipaleState extends State<PagePrincipale> {
                         ),
                         onPressed: _toggleFavorite,
                       ),
+                      if (villePrincipale == villeData!.nom)
+                        const Icon(
+                          Icons.home,
+                          color: Colors.orange,
+                        ), // 🆕 icône ville principale
                     ],
                   ),
                   Text(
-                    '☀️ ${villeData!.meteo}, ${villeData!.tempActuelle}°C (Min: ${villeData!.tempMin}°C, Max: ${villeData!.tempMax}°C)',
+                    '☀️ ${villeData!.meteo}, ${villeData!.tempActuelle}°C '
+                    '(Min: ${villeData!.tempMin}°C, Max: ${villeData!.tempMax}°C)',
                   ),
                 ],
               ),
@@ -294,19 +371,30 @@ class _PagePrincipaleState extends State<PagePrincipale> {
               'Villes favorites :',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+
+            /// 🆕 Liste des villes favorites avec option "définir principale"
             Wrap(
               spacing: 8,
-              children: villesFavorites
-                  .map(
-                    (v) => ActionChip(
-                      label: Text(v),
-                      onPressed: () => _selectionnerVille(v),
-                    ),
-                  )
-                  .toList(),
+              children: villesFavorites.map((v) {
+                final isMain = v == villePrincipale;
+                return ActionChip(
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(v),
+                      if (isMain)
+                        const Icon(Icons.home, size: 18, color: Colors.orange),
+                    ],
+                  ),
+                  onPressed: () {
+                    _selectionnerVille(v);
+                    _setVillePrincipale(v);
+                  }, // 🆕 clic long = définir principale
+                );
+              }).toList(),
             ),
-            const SizedBox(height: 20),
 
+            const SizedBox(height: 20),
             const Text(
               'Lieux enregistrés :',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
