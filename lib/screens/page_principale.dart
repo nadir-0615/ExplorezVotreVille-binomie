@@ -56,7 +56,7 @@ class _PagePrincipaleState extends State<PagePrincipale>
   double? _noteTemp;
   String? _commentaireTemp;
 
-  // Animation marqueur (AMÉLIORÉE - plus visible)
+  // Animation marqueur
   late AnimationController _markerController;
   late Animation<double> _markerAnimation;
   late Animation<double> _pulseAnimation;
@@ -65,7 +65,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
   void initState() {
     super.initState();
 
-    // Animation du marqueur - DOUBLE EFFET (scale + pulse)
     _markerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -119,7 +118,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
         userLon = locationData['longitude'];
         final cityName = locationData['city'];
 
-        // Récupérer météo
         final ville = await ApiService.fetchVilleDataByCoords(
           lat: userLat!,
           lon: userLon!,
@@ -132,7 +130,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
           villeLon = userLon;
         });
 
-        // Enregistrer en DB
         await _enregistrerVilleEnDB(ville);
 
         _centrerCarte();
@@ -164,17 +161,14 @@ class _PagePrincipaleState extends State<PagePrincipale>
     });
 
     try {
-      // Recherche multi-résultats
       final resultats = await ApiService.searchCities(query);
 
       if (resultats.length == 1) {
-        // Une seule ville trouvée
         await _selectionnerVilleParCoords(
           resultats[0]['lat'],
           resultats[0]['lon'],
         );
       } else {
-        // Plusieurs villes : afficher dialogue de choix
         _afficherChoixVilles(resultats);
       }
     } catch (e) {
@@ -233,7 +227,7 @@ class _PagePrincipaleState extends State<PagePrincipale>
 
       print('🏙️ Ville sélectionnée: $villeNomActuelle (ID: $villeIdActuelle)');
 
-      await _loadLieux(); // ← IMPORTANT : Charge les lieux existants
+      await _loadLieux();
       _centrerCarte();
       _checkFavorite();
     } catch (e) {
@@ -249,18 +243,59 @@ class _PagePrincipaleState extends State<PagePrincipale>
 
   // ==================== BASE DE DONNÉES ====================
 
+  // ==================== BASE DE DONNÉES ====================
+
   Future<void> _enregistrerVilleEnDB(Ville ville) async {
+    // 👉 On garde cette fonction pour les appels existants
     final existante = await _db.getVilleByNom(ville.nom);
 
+    int id;
     if (existante == null) {
-      villeIdActuelle = await _db.insertVille(
+      id = await _db.insertVille(
         nom: ville.nom,
         latitude: ville.latitude,
         longitude: ville.longitude,
       );
     } else {
-      villeIdActuelle = existante['id'];
+      id = existante['id'];
     }
+
+    setState(() {
+      villeIdActuelle = id;
+      villeNomActuelle = ville.nom;
+      villeLat = ville.latitude;
+      villeLon = ville.longitude;
+    });
+
+    await _loadFavorites(); // met à jour villeFavorite aussi
+  }
+
+  // 👉 Nouvelle fonction : s'assure qu'on a un ID de ville AVANT de toucher aux favoris
+  Future<void> _ensureVilleEnregistree() async {
+    if (villeIdActuelle != null) return;
+    if (villeData == null) return;
+
+    final existante = await _db.getVilleByNom(villeData!.nom);
+
+    int id;
+    if (existante == null) {
+      id = await _db.insertVille(
+        nom: villeData!.nom,
+        latitude: villeData!.latitude,
+        longitude: villeData!.longitude,
+      );
+    } else {
+      id = existante['id'];
+    }
+
+    setState(() {
+      villeIdActuelle = id;
+      villeNomActuelle = villeData!.nom;
+      villeLat = villeData!.latitude;
+      villeLon = villeData!.longitude;
+    });
+
+    await _loadFavorites();
   }
 
   Future<void> _chargerVilleDepuisDB(Map<String, dynamic> villeDB) async {
@@ -284,7 +319,7 @@ class _PagePrincipaleState extends State<PagePrincipale>
 
       print('🏙️ Ville chargée: $villeNomActuelle (ID: $villeIdActuelle)');
 
-      await _loadLieux(); // ← IMPORTANT : Charge les lieux de cette ville
+      await _loadLieux();
       _centrerCarte();
       _checkFavorite();
     } catch (e) {
@@ -297,7 +332,8 @@ class _PagePrincipaleState extends State<PagePrincipale>
       });
     }
   }
-// ==================== LIEUX ====================
+
+  // ==================== LIEUX ====================
 
   Future<void> _loadLieux() async {
     if (villeIdActuelle == null) {
@@ -317,7 +353,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
           '✅ ${lieux.length} lieux chargés (catégorie: $categorieSelectionnee)');
     }
 
-    // Affiche les lieux en console
     for (var lieu in lieux) {
       print('  - ${lieu['titre']} (${lieu['categorie']})');
     }
@@ -347,7 +382,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Nom du lieu
                     TextField(
                       decoration: const InputDecoration(
                         labelText: 'Nom du lieu',
@@ -356,8 +390,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                       onChanged: (value) => nom = value,
                     ),
                     const SizedBox(height: 16),
-
-                    // Catégorie
                     DropdownButtonFormField<String>(
                       value: categorie,
                       decoration: const InputDecoration(
@@ -426,8 +458,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                       },
                     ),
                     const SizedBox(height: 16),
-
-                    // ========== AJOUT MULTIPLE D'IMAGES ==========
                     const Divider(),
                     Row(
                       children: [
@@ -443,8 +473,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                       ],
                     ),
                     const SizedBox(height: 8),
-
-                    // Liste des images ajoutées
                     if (imagesUrls.isNotEmpty)
                       SizedBox(
                         height: 80,
@@ -500,10 +528,7 @@ class _PagePrincipaleState extends State<PagePrincipale>
                           },
                         ),
                       ),
-
                     const SizedBox(height: 8),
-
-                    // Champ pour ajouter une nouvelle image
                     Row(
                       children: [
                         Expanded(
@@ -531,8 +556,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // Note avec étoiles
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -573,8 +596,6 @@ class _PagePrincipaleState extends State<PagePrincipale>
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // Commentaire
                     TextField(
                       decoration: const InputDecoration(
                         labelText: 'Commentaire (optionnel)',
@@ -767,9 +788,15 @@ class _PagePrincipaleState extends State<PagePrincipale>
   // ==================== FAVORIS ====================
 
   Future<void> _loadFavorites() async {
-    villesFavorites = await _db.getVillesFavorites();
-    setState(() {});
-    _checkFavorite();
+    final favs = await _db.getVillesFavorites();
+    setState(() {
+      villesFavorites = favs;
+      if (villeIdActuelle != null) {
+        villeFavorite = villesFavorites.any((v) => v['id'] == villeIdActuelle);
+      } else {
+        villeFavorite = false;
+      }
+    });
   }
 
   void _checkFavorite() {
@@ -780,19 +807,56 @@ class _PagePrincipaleState extends State<PagePrincipale>
   }
 
   Future<void> _toggleFavorite() async {
-    if (villeIdActuelle == null) return;
+    // 1️⃣ On s'assure que la ville est bien enregistrée en DB et qu'on a un ID
+    await _ensureVilleEnregistree();
 
-    await _db.toggleFavorite(villeIdActuelle!, !villeFavorite);
-    await _loadFavorites();
-
-    if (mounted) {
+    if (villeIdActuelle == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              villeFavorite ? '⭐ Ajouté aux favoris' : '❌ Retiré des favoris'),
+        const SnackBar(
+          content:
+              Text('Aucune ville sélectionnée. Cherche d\'abord une ville.'),
         ),
       );
+      return;
     }
+
+    final newValue = !villeFavorite;
+
+    // 2️⃣ Mise à jour immédiate de l’UI
+    setState(() {
+      villeFavorite = newValue;
+
+      if (newValue) {
+        final existeDeja =
+            villesFavorites.any((v) => v['id'] == villeIdActuelle);
+        if (!existeDeja) {
+          villesFavorites.insert(0, {
+            'id': villeIdActuelle,
+            'nom': villeNomActuelle,
+            'latitude': villeLat,
+            'longitude': villeLon,
+          });
+        }
+      } else {
+        villesFavorites.removeWhere((v) => v['id'] == villeIdActuelle);
+      }
+    });
+
+    // 3️⃣ Sync avec SQLite
+    await _db.toggleFavorite(villeIdActuelle!, newValue);
+    await _loadFavorites(); // 🔥 recharger la liste depuis la DB
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          newValue
+              ? '⭐ Ville ajoutée aux favoris'
+              : '❌ Ville retirée des favoris',
+        ),
+      ),
+    );
   }
 
   Future<void> _supprimerVilleFavorite(int villeId) async {
@@ -873,84 +937,342 @@ class _PagePrincipaleState extends State<PagePrincipale>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      appBar: AppBar(
-        title: const Text(
-          'Explorez Votre Ville',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+        backgroundColor: const Color(0xFFF5F7FA),
+        appBar: AppBar(
+          title: const Text(
+            'Explorez Votre Ville',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+          ),
+          backgroundColor: Colors.teal,
+          elevation: 0,
+          actions: [
+            if (villeIdActuelle != null)
+              IconButton(
+                icon: const Icon(Icons.home),
+                onPressed: _setVillePrincipale,
+                tooltip: 'Définir comme ville principale',
+              ),
+          ],
         ),
-        backgroundColor: Colors.teal,
-        elevation: 0,
-        actions: [
-          if (villeIdActuelle != null)
-            IconButton(
-              icon: Icon(villeFavorite ? Icons.star : Icons.star_border),
-              color: Colors.amber,
-              onPressed: _toggleFavorite,
-              tooltip: 'Favoris',
-            ),
-          if (villeIdActuelle != null)
-            IconButton(
-              icon: const Icon(Icons.home),
-              onPressed: _setVillePrincipale,
-              tooltip: 'Définir comme ville principale',
-            ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ========== BANDEAU MÉTÉO ==========
-            WeatherBanner(villeData: villeData, isLoading: isLoading),
-
-            const SizedBox(height: 20),
-
-            // ========== BARRE DE RECHERCHE ==========
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _villeController,
-                    decoration: InputDecoration(
-                      labelText: 'Rechercher une ville',
-                      hintText: 'Paris, Londres, New York...',
-                      prefixIcon: const Icon(Icons.search, color: Colors.teal),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              WeatherBanner(villeData: villeData, isLoading: isLoading),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _villeController,
+                      decoration: InputDecoration(
+                        labelText: 'Rechercher une ville',
+                        hintText: 'Paris, Londres, New York...',
+                        prefixIcon:
+                            const Icon(Icons.search, color: Colors.teal),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide:
+                              const BorderSide(color: Colors.teal, width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide:
-                            const BorderSide(color: Colors.teal, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
+                      onSubmitted: (_) => _rechercherVille(),
                     ),
-                    onSubmitted: (_) => _rechercherVille(),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // ⭐ Bouton favoris à côté de la barre de recherche
+                  IconButton(
+                    icon: Icon(villeFavorite ? Icons.star : Icons.star_border),
+                    color: villeFavorite
+                        ? Colors.amber
+                        : Colors.grey, // ✅ on voit ON / OFF
+                    tooltip: villeFavorite
+                        ? 'Retirer des favoris'
+                        : 'Ajouter la ville aux favoris',
+                    onPressed:
+                        _toggleFavorite, // ✅ on laisse Flutter gérer l'ID
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // 🔍 Bouton recherche
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.teal,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.search, color: Colors.white),
+                      onPressed: _rechercherVille,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // VILLES FAVORITES
+              if (villesFavorites.isNotEmpty) ...[
+                const Text(
+                  '⭐ Villes favorites',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: villesFavorites.map((v) {
+                      final bool isCurrent = v['id'] == villeIdActuelle;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: Stack(
+                          children: [
+                            ActionChip(
+                              avatar: Icon(
+                                Icons.location_city,
+                                size: 18,
+                                color: isCurrent ? Colors.amber : Colors.white,
+                              ),
+                              label: Text(
+                                v['nom'],
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              backgroundColor: isCurrent
+                                  ? Colors.teal.shade700
+                                  : Colors.teal,
+                              labelStyle: TextStyle(
+                                color: Colors.white,
+                                fontWeight: isCurrent
+                                    ? FontWeight.w900
+                                    : FontWeight.bold,
+                              ),
+                              shape: StadiumBorder(
+                                side: BorderSide(
+                                  color: isCurrent
+                                      ? Colors.amberAccent
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              onPressed: () => _chargerVilleDepuisDB(v),
+                            ),
+                            Positioned(
+                              top: -8,
+                              right: -8,
+                              child: GestureDetector(
+                                onTap: () => _supprimerVilleFavorite(v['id']),
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.close,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ] else ...[
+                const SizedBox(height: 8),
                 Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.teal,
-                    borderRadius: BorderRadius.circular(15),
+                    color: Colors.teal.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.teal.withOpacity(0.3),
+                    ),
                   ),
-                  child: IconButton(
-                    icon: const Icon(Icons.search, color: Colors.white),
-                    onPressed: _rechercherVille,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline,
+                          size: 18, color: Colors.teal),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Astuce : appuie sur ⭐ en haut pour ajouter la ville aux favoris et la retrouver rapidement ici.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 20),
               ],
-            ),
 
-            const SizedBox(height: 20),
+              // CARTE
+              Container(
+                height: 350,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.teal.shade300, width: 3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: const LatLng(48.8566, 2.3522),
+                      initialZoom: 13.0,
+                      onTap: _onMapTap,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.example.explorezvotreville',
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          if (villeLat != null && villeLon != null)
+                            Marker(
+                              point: LatLng(villeLat!, villeLon!),
+                              width: 100,
+                              height: 100,
+                              child: AnimatedBuilder(
+                                animation: _markerController,
+                                builder: (context, child) {
+                                  return Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Container(
+                                        width: 50 + _pulseAnimation.value,
+                                        height: 50 + _pulseAnimation.value,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.red.withOpacity(
+                                            0.3 - (_pulseAnimation.value / 100),
+                                          ),
+                                        ),
+                                      ),
+                                      Transform.scale(
+                                        scale: _markerAnimation.value,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color:
+                                                    Colors.red.withOpacity(0.5),
+                                                blurRadius: 15,
+                                                spreadRadius: 5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: const Icon(
+                                            Icons.location_on,
+                                            color: Colors.red,
+                                            size: 40,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          if (userLat != null && userLon != null)
+                            Marker(
+                              point: LatLng(userLat!, userLon!),
+                              width: 40,
+                              height: 40,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.blue,
+                                  shape: BoxShape.circle,
+                                  border:
+                                      Border.all(color: Colors.white, width: 3),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.blue.withOpacity(0.5),
+                                      blurRadius: 10,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.person_pin,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ...lieux.map((lieu) {
+                            return Marker(
+                              point:
+                                  LatLng(lieu['latitude'], lieu['longitude']),
+                              width: 40,
+                              height: 40,
+                              child: GestureDetector(
+                                onTap: () => _centrerSurLieu(lieu),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        color: Colors.white, width: 2),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.green.withOpacity(0.5),
+                                        blurRadius: 8,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.place,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
-            // ========== VILLES FAVORITES (AVEC SUPPRESSION) ==========
-            if (villesFavorites.isNotEmpty) ...[
+              const SizedBox(height: 25),
+
               const Text(
-                '⭐ Villes favorites',
+                '🎯 Catégories',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -958,307 +1280,84 @@ class _PagePrincipaleState extends State<PagePrincipale>
                 ),
               ),
               const SizedBox(height: 10),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: villesFavorites.map((v) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: Stack(
-                        children: [
-                          ActionChip(
-                            avatar: const Icon(Icons.location_city,
-                                size: 18, color: Colors.white),
-                            label: Text(v['nom']),
-                            backgroundColor: Colors.teal,
-                            labelStyle: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            onPressed: () => _chargerVilleDepuisDB(v),
-                          ),
-                          Positioned(
-                            top: -8,
-                            right: -8,
-                            child: GestureDetector(
-                              onTap: () => _supprimerVilleFavorite(v['id']),
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.close,
-                                  color: Colors.white,
-                                  size: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+              CategoryFilter(
+                selectedCategory: categorieSelectionnee,
+                onCategorySelected: (categorie) {
+                  setState(() {
+                    categorieSelectionnee = categorie;
+                  });
+                  _loadLieux();
+                },
               ),
-              const SizedBox(height: 20),
-            ],
 
-            // ========== CARTE AVEC MARQUEUR SUPER VISIBLE ==========
-            Container(
-              height: 350,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.teal.shade300, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
+              const SizedBox(height: 25),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Text(
+                    '📍 Lieux (${lieux.length})',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter:
-                        const LatLng(48.8566, 2.3522), // Paris par défaut
-                    initialZoom: 13.0,
-                    onTap: _onMapTap,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.example.explorezvotreville',
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        // ========== MARQUEUR VILLE SÉLECTIONNÉE - SUPER VISIBLE AVEC PULSE ==========
-                        if (villeLat != null && villeLon != null)
-                          Marker(
-                            point: LatLng(villeLat!, villeLon!),
-                            width: 100,
-                            height: 100,
-                            child: AnimatedBuilder(
-                              animation: _markerController,
-                              builder: (context, child) {
-                                return Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    // Effet pulse (cercle qui s'agrandit)
-                                    Container(
-                                      width: 50 + _pulseAnimation.value,
-                                      height: 50 + _pulseAnimation.value,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.red.withOpacity(
-                                          0.3 - (_pulseAnimation.value / 100),
-                                        ),
-                                      ),
-                                    ),
-                                    // Icône principale qui scale
-                                    Transform.scale(
-                                      scale: _markerAnimation.value,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color:
-                                                  Colors.red.withOpacity(0.5),
-                                              blurRadius: 15,
-                                              spreadRadius: 5,
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.location_on,
-                                          color: Colors.red,
-                                          size: 40,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
+              const SizedBox(height: 10),
 
-                        // Marqueur position GPS utilisateur
-                        if (userLat != null && userLon != null)
-                          Marker(
-                            point: LatLng(userLat!, userLon!),
-                            width: 40,
-                            height: 40,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.blue,
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: Colors.white, width: 3),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.blue.withOpacity(0.5),
-                                    blurRadius: 10,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.person_pin,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ),
-                          ),
-
-                        // Marqueurs des lieux enregistrés
-                        ...lieux.map((lieu) {
-                          return Marker(
-                            point: LatLng(lieu['latitude'], lieu['longitude']),
-                            width: 40,
-                            height: 40,
-                            child: GestureDetector(
-                              onTap: () => _centrerSurLieu(lieu),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.green,
-                                  shape: BoxShape.circle,
-                                  border:
-                                      Border.all(color: Colors.white, width: 2),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.green.withOpacity(0.5),
-                                      blurRadius: 8,
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.place,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
+              if (lieux.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(40),
+                    child: Column(
+                      children: [
+                        Icon(Icons.location_off,
+                            size: 60, color: Colors.grey.shade400),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Aucun lieu enregistré',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 16),
+                        ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 25),
-
-            // ========== FILTRES CATÉGORIES ==========
-            const Text(
-              '🎯 Catégories',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 10),
-            CategoryFilter(
-              selectedCategory: categorieSelectionnee,
-              onCategorySelected: (categorie) {
-                setState(() {
-                  categorieSelectionnee = categorie;
-                });
-                _loadLieux();
-              },
-            ),
-
-            const SizedBox(height: 25),
-
-            // ========== LISTE DES LIEUX ==========
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '📍 Lieux (${lieux.length})',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
                   ),
-                ),
-                TextButton.icon(
-                  onPressed: _demarrerAjoutLieu,
-                  icon: const Icon(Icons.add_location_alt),
-                  label: const Text('Ajouter'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.teal,
-                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
+                )
+              else
+                ...lieux.map((lieu) {
+                  List<String> imagesUrls = [];
+                  if (lieu['images_urls'] != null &&
+                      lieu['images_urls'].toString().isNotEmpty) {
+                    imagesUrls = (lieu['images_urls'] as String)
+                        .split('|||')
+                        .where((url) => url.isNotEmpty)
+                        .toList();
+                  }
 
-            const SizedBox(height: 10),
+                  return LieuCard(
+                    titre: lieu['titre'],
+                    categorie: lieu['categorie'],
+                    imagesUrls: imagesUrls,
+                    note: lieu['note'],
+                    onTap: () => _centrerSurLieu(lieu),
+                    onDelete: () => _supprimerLieu(lieu['id']),
+                  );
+                }).toList(),
 
-            if (lieux.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(40),
-                  child: Column(
-                    children: [
-                      Icon(Icons.location_off,
-                          size: 60, color: Colors.grey.shade400),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Aucun lieu enregistré',
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 16),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              ...lieux.map((lieu) {
-                // Conversion des images
-                List<String> imagesUrls = [];
-                if (lieu['images_urls'] != null &&
-                    lieu['images_urls'].toString().isNotEmpty) {
-                  imagesUrls = (lieu['images_urls'] as String)
-                      .split('|||')
-                      .where((url) => url.isNotEmpty)
-                      .toList();
-                }
-
-                return LieuCard(
-                  titre: lieu['titre'],
-                  categorie: lieu['categorie'],
-                  imagesUrls: imagesUrls,
-                  note: lieu['note'],
-                  onTap: () => _centrerSurLieu(lieu),
-                  onDelete: () => _supprimerLieu(lieu['id']),
-                );
-              }).toList(),
-
-            const SizedBox(height: 30),
-          ],
+              const SizedBox(height: 30),
+            ],
+          ),
         ),
-      ),
-
-      // ========== BOUTON FLOTTANT ==========
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _demarrerAjoutLieu,
-        backgroundColor: Colors.teal,
-        icon: const Icon(Icons.add_location, color: Colors.white),
-        label: const Text(
-          'Ajouter lieu',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _demarrerAjoutLieu,
+          backgroundColor: Colors.teal,
+          icon: const Icon(Icons.add_location, color: Colors.white),
+          label: const Text(
+            'Ajouter lieu',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ));
   }
 }
